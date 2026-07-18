@@ -1,46 +1,142 @@
-# VR-reversal
+# VR-reversal (unvr-mpv)
 
-Uses MPV and a plugin to play a 3D side-by-side video as a 2D video, allows you to look around and zoom within the video, optionally logs the head motions to a file for later rendering out to a 2D video with ffmpeg.
+Uses mpv and a Lua plugin to play a 3D side-by-side VR video as a flat 2D
+video: look around and zoom within the video with the mouse or keyboard, and
+optionally log the "head" motions to a file for later rendering out to a
+regular 2D video with ffmpeg.
+
+Fork of [dfaker/VR-reversal](https://github.com/dfaker/VR-reversal) with
+Linux launcher support, optional GPU decode acceleration, and portability
+fixes.
 
 ![Example output](https://github.com/dfaker/VR-reversal/blob/master/example.gif?raw=true)
 
-# Installation and Usage:
+# Requirements
 
-- Download the lastest MPV https://mpv.io/
-- Download the [360plugin.lua](https://raw.githubusercontent.com/dfaker/VR-reversal/master/360plugin.lua) plugin from this repo.
-- Play a video using the plugin with the command: `mpv --script=360plugin.lua --script-opts=360plugin-enabled=yes videoFile.mp4`
+- [mpv](https://mpv.io/) built against a reasonably recent FFmpeg. The plugin
+  needs the `v360` filter with the `reset_rot` option (FFmpeg >= 4.4). If mpv
+  reports `AVOption 'reset_rot' not found`, your mpv/FFmpeg is too old.
+- [ffmpeg](https://ffmpeg.org/) on PATH - only needed to render the recorded
+  sessions to 2D video files, not for viewing.
 
-If you want to enable this script automatically on startup in your regular MPV, you can place the config file from the `script-opts` directory in the corresponding MPV config directory, along with the script itself in MPV's `scripts` directory. To activate auto-starting of the script every MPV session, change `enabled=yes` in the config file.
+# Installation
 
-If you want to save the 2D versions videos rather than just watch them you'll need a recent version of ffmpeg from https://ffmpeg.org/ but it's not needed just for viewing.
+## Linux
 
-Alternatively rather than using the command line, Microsoft Windows users may choose to:
+Install mpv and ffmpeg from your distribution, then clone this repo:
 
-- Place mpv.exe, [vr-reversal.bat](https://raw.githubusercontent.com/dfaker/VR-reversal/master/vr-reversal.bat) and [360plugin.lua](https://raw.githubusercontent.com/dfaker/VR-reversal/master/360plugin.lua) (the latter two are available as a Zip file in [releases](https://github.com/dfaker/VR-reversal/releases)) in the same directory.
-- Run `vr-reversal.bat`
-- Drag and drop videos onto the MPV window.
+```sh
+# Debian/Ubuntu
+sudo apt install mpv ffmpeg
+# Fedora (RPM Fusion enabled)
+sudo dnf install mpv ffmpeg
+# Arch
+sudo pacman -S mpv ffmpeg
+
+git clone https://github.com/llucis/unvr-mpv.git
+cd unvr-mpv
+```
+
+Play a video through the wrapper script:
+
+```sh
+./vr-reversal.sh videoFile.mp4
+```
+
+The wrapper:
+
+- launches mpv with the plugin enabled (no mpv config changes needed);
+- auto-detects a GPU (NVIDIA or a `/dev/dri` render node) and enables
+  hardware *decoding* (`hwdec=auto-copy`) when one is present - pass
+  `--no-hwdec` to disable, or `--hwdec MODE` to force a specific mode;
+- accepts an alternative player binary with `-p /path/to/mpv` or the
+  `MPV_BIN` environment variable (useful for flatpak or custom builds);
+- passes all other arguments straight to mpv, so multiple files, playlists
+  and extra mpv options work as usual;
+- with no file arguments, opens an idle mpv window you can drag videos onto.
+
+Run `./vr-reversal.sh --help` for the full usage text.
+
+Note: motion logs and the conversion script are written to the directory you
+launch from, so run the wrapper from a writable directory (ideally the one
+holding your videos).
+
+Alternatively, to enable the plugin inside your regular mpv setup, copy
+`360plugin.lua` into `~/.config/mpv/scripts/` and
+`script-opts/360plugin.conf` into `~/.config/mpv/script-opts/`, then press
+`v` in any mpv session to toggle it (or set `enabled=yes` in the conf to
+always start active).
+
+## Windows
+
+- Place `mpv.exe`, `vr-reversal.bat` and `360plugin.lua` in the same
+  directory (or put mpv on PATH).
+- Run `vr-reversal.bat` and drag videos onto the mpv window, or drop a video
+  file directly onto the .bat.
+
+To get a Desktop shortcut you can drop videos onto:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File create-windows-shortcut.ps1
+```
+
+This creates "VR Reversal.lnk" on your Desktop pointing at
+`vr-reversal.bat` (a ready-made .lnk cannot ship in the repo because
+shortcuts embed absolute local paths). Dropping a video file on the shortcut
+starts a session with the plugin enabled.
+
+To enable GPU decode acceleration on Windows, set the `VR_HWDEC`
+environment variable before launching, e.g. `set VR_HWDEC=auto-copy` (or
+`d3d11va-copy`, `nvdec-copy`).
+
+# GPU acceleration - what it does and does not cover
+
+The v360 reprojection is a CPU libavfilter filter; mpv has no GPU
+implementation of it, so the projection math always runs on the CPU. What
+*can* be offloaded is video decoding (the other big CPU consumer,
+especially for 4K+ VR sources), using mpv's copy-back hardware decoding
+modes (`auto-copy`, `nvdec-copy`, `vaapi-copy`, `d3d11va-copy`, ...).
+Copy-back is required: non-copy modes keep frames in GPU memory where the
+CPU filter cannot reach them and playback fails with a filter format error.
+For that reason the plugin normalizes `hwdec=yes/auto` to `auto-copy`, and
+defaults to `hwdec=no` (the historic safe behavior) unless you or the
+launcher scripts opt in.
+
+This also works in headless or remote sessions (VNC, X forwarding):
+NVDEC/VAAPI decode does not need the display, so GPU decode acceleration is
+available even when the video output itself falls back to software
+rendering.
+
+The plugin option is exposed like any other script opt:
+
+```sh
+mpv --script=360plugin.lua --script-opts=360plugin-enabled=yes,360plugin-hwdec=auto-copy videoFile.mp4
+```
 
 # Controls
 
 You can press `?` to show all of the keyboard controls on screen at any time.
 
-When the player is started, if the script is automatically enabled, you'll be looking straight forwards. If not type:
+When the player is started, if the script is automatically enabled, you'll be
+looking straight forwards. If not type:
 
 - `v` to toggle the main feature on or off.
 
-The video will start at a low resolution, if you'd like more detail press `y` increase the initial preview quality `h` to reduce it again.
+The video will start at a low resolution; press `y` to increase the preview
+quality, `h` to reduce it again.
 
-- `y` Increase resolution
+- `y` increase resolution
 - `h` decrease resolution
 
 Control where you're looking with the mouse:
 
-- MouseLook: click anywhere in the video and your mouse position will control the camera, click again to stop mouse control
+- MouseLook: click anywhere in the video and your mouse position will control
+  the camera, click again to stop mouse control
 - MouseScroll: zoom in and out
 
 or alternately look around with these keys:
 
-- `i`,`j`,`k`,`l` look around 
+- `i`,`j`,`k`,`l` look around
 - `u`,`o` roll head
 - `=`,`-` zoom
 - `TAB` center view
@@ -48,36 +144,77 @@ or alternately look around with these keys:
 Additional controls:
 
 - `t` switch the eye you're looking through between left and right
-- `e` switch the video scaler between nearest neighbour and bicubic
+- `e` switch the video scaler
 - `g` toggle mouse smoothing
 - `n` start / stop logging head motions to file (for later rendering)
 - `?` display reminder of keyboard and mouse controls
 
 Advanced projection controls:
 
-90% of modern vr releases work perfectly with the defauls of 180 degree 'hequirect' projection so you shound't need these unless playing older or unusually formatted content:
+90% of modern VR releases work perfectly with the defaults of 180 degree
+'hequirect' projection so you shouldn't need these unless playing older or
+unusually formatted content:
 
-- `r` toggle stereo mode between top/bottom and side by-side
-- `b` cycle input fov bounds between 180,360 and 90
+- `r` toggle stereo mode between top/bottom and side-by-side
+- `b` cycle input fov bounds between 180, 360 and 90
 - `1` cycle through input projections
 - `2` cycle through output projections
-- `p` cycle through 2D output modes including flat 2D, reprojected side by side and anaglyph modes.
+- `p` cycle through 2D output modes including flat 2D, reprojected side by
+  side and anaglyph modes
 
-Most of the standard default MPV controls are maintained:
+Most of the standard default mpv controls are maintained:
 
 - `Arrow keys` seek through video
 - `SPACE` pause
 - `f` fullscreen toggle
 - `9`,`0` or `/`,`*` volume up and down
 - `m` mute
-
-And finally when you are done:
-
 - `q` quit
 
-You can configure the default keybindings in the `script-opts/360plugin.conf` file, or override them in your `input.conf` file as usual.
+You can configure the default keybindings in the `script-opts/360plugin.conf`
+file, or override them in your `input.conf` file as usual.
 
-# 'Head' Motion Logging and saving your clips
-If you have pressed `n` during your session your 'head' movements in the video will be logged to a file named `{originalFilename}_3dViewHistory_{sectionNumber}.txt` this is in the format of motion commands to be processed by ffmpeg https://ffmpeg.org/
+# Recording a session and rendering it to 2D with ffmpeg
 
-The script will create a batch file `convert_3dViewHistory.bat` after you exit the player, if you have ffmpeg installed you may simply run this file to perform the conversion to 2D .mp4 clips automatically.
+The workflow to capture a "virtual camera" pass through a VR video and bake
+it into a normal 2D clip:
+
+1. Start the video with the plugin enabled (wrapper script, .bat/shortcut,
+   or the `--script=...` command line above).
+2. Frame your view (look around, zoom, pick the eye) and press `n` to start
+   recording. An OSD timer shows `Recording:HH:MM:SS` while active.
+3. Keep watching and moving the view; every head movement is logged with
+   timestamps.
+4. Press `n` again to stop the section (or just quit - the log is closed
+   automatically on exit). You can press `n` repeatedly to record several
+   independent sections of the same video.
+5. Quit mpv. For each recorded section you get a motion log named
+   `{videoFilename}_3dViewHistory_{N}.txt` - a list of timestamped ffmpeg
+   `sendcmd` commands that replay your view animation - plus one combined
+   conversion script:
+   - `convert_3dViewHistory.sh` on Linux/macOS (already executable)
+   - `convert_3dViewHistory.bat` on Windows
+6. Run that script from the same directory to render the 2D clips:
+
+   ```sh
+   ./convert_3dViewHistory.sh        # Linux
+   convert_3dViewHistory.bat         # Windows
+   ```
+
+   Each section renders (CRF 17, preset slower, 1920x1080) to
+   `{videoFilename}_2d_{NNN}.mp4`.
+
+The exact ffmpeg command for each section is also embedded as a comment at
+the end of its motion log file, so you can tweak quality settings or re-run
+sections individually.
+
+Caveats:
+
+- Run the conversion from the same directory where the logs were written
+  (the ffmpeg command references the log file by relative name).
+- Video filenames containing `'`, `:` or `,` will break the generated ffmpeg
+  filter arguments; rename such files before recording.
+
+# License
+
+See [LICENSE](LICENSE). Original work by [dfaker](https://github.com/dfaker).
