@@ -145,6 +145,7 @@ Additional controls:
 
 - `t` switch the eye you're looking through between left and right
 - `e` switch the video scaler
+- `x` cycle vertical (portrait) crop: off -> 9:16 -> 2:3 -> 3:4 -> 1:1 -> off
 - `g` toggle mouse smoothing
 - `n` start / stop logging head motions to file (for later rendering)
 - `?` display reminder of keyboard and mouse controls
@@ -173,6 +174,28 @@ Most of the standard default mpv controls are maintained:
 
 You can configure the default keybindings in the `script-opts/360plugin.conf`
 file, or override them in your `input.conf` file as usual.
+
+# Vertical (portrait) crop
+
+Press `x` (configurable as `vertical_crop`) to crop the projected 2D view to
+a portrait aspect - a centered cut of the normal 16:9 projection, useful for
+producing vertical clips. The key cycles through the aspect list from
+`vertical_aspects` in the config (default `9:16,2:3,3:4,1:1`) and back to
+off. Recording honors the crop: sections recorded with a crop active export
+as vertical video at 1080p height (9:16 -> 608x1080, 2:3 -> 720x1080,
+3:4 -> 810x1080, 1:1 -> 1080x1080) - exactly the view you saw.
+
+Notes:
+
+- The export frame size is fixed when a recording section starts (video
+  streams cannot change size mid-file), so changing the crop while a section
+  is recording does not affect that section; press `n` twice to start a new
+  section with the new crop.
+- The crop only applies in the flat 2D output mode, not in the side-by-side
+  or anaglyph output modes.
+- When setting `vertical_aspects` on the mpv command line, note that commas
+  separate script opts; use the config file for multiple aspects, or pass a
+  single one, e.g. `--script-opts=...,360plugin-vertical_aspects=9:16`.
 
 # Recording a session and rendering it to 2D with ffmpeg
 

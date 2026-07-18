@@ -12,6 +12,11 @@ local opts = {
 	-- because the v360 projection is a CPU (libavfilter) filter.
 	-- "yes"/"auto" are normalized to "auto-copy", "auto-safe" to "auto-copy-safe".
 	["hwdec"]="no",
+	-- Vertical (portrait) crop of the projected 2d view. The hotkey cycles
+	-- off -> each aspect in vertical_aspects -> off. Only applies in the flat
+	-- 2d output mode; the recorded ffmpeg export crops to match the view.
+	["vertical_crop"]="x",
+	["vertical_aspects"]="9:16,2:3,3:4,1:1",
 	["toggle_vr360"]="v",
 	["cycle_input"]="1",
 	["cycle_output"]="2",
@@ -113,6 +118,44 @@ local in_flip   = ''
 
 local interp    = 'cubic'
 
+local parseVerticalAspects = function(spec)
+	local list = {}
+	for token in tostring(spec):gmatch('[^,%s]+') do
+		local aw, ah = token:match('^(%d+%.?%d*)[:/](%d+%.?%d*)$')
+		aw, ah = tonumber(aw), tonumber(ah)
+		if aw and ah and aw > 0 and ah > 0 then
+			list[#list+1] = {w=aw, h=ah, label=token}
+		else
+			print('ignoring invalid vertical aspect "' .. token .. '"')
+		end
+	end
+	return list
+end
+
+local verticalAspects = parseVerticalAspects(opts.vertical_aspects)
+local verticalCropInd = 0	-- 0 = crop off
+local init_cropFilter = ''	-- export crop clause, captured at recording start
+
+-- Returns ',crop=W:H' (centered) for the given output frame size, or '' when
+-- the crop is off. Cropping a side-by-side or anaglyph frame is ill-defined,
+-- so the crop only applies in the flat 2d output mode.
+local cropClause = function(outw, outh)
+	if verticalCropInd == 0 or outputMode ~= '2d' then
+		return ''
+	end
+	local a = verticalAspects[verticalCropInd]
+	local ar = a.w / a.h
+	local cw, ch
+	if ar <= outw / outh then
+		ch = outh
+		cw = math.floor(outh * ar / 2 + 0.5) * 2
+	else
+		cw = outw
+		ch = math.floor(outw / ar / 2 + 0.5) * 2
+	end
+	return string.format(',crop=%d:%d', cw, ch)
+end
+
 local startTime = nil
 
 local filterIsOn = false
@@ -209,6 +252,9 @@ local writeHeadPositionChange = function()
 			init_yaw   = yaw
 			init_roll  = roll
 			init_dfov  = dfov
+			-- The export frame size cannot change mid-section, so the crop
+			-- active when the recording starts is the one that gets rendered.
+			init_cropFilter = cropClause(1920.0, 1080.0)
 		end
 
 		if #changedValues > 0 then
@@ -241,12 +287,13 @@ local printRecordingStatus = function()
 end
 
 local updateFilters = function ()
+	local filterString = string.format("@vrrev:%sv360=%s:%s:reset_rot=1:in_stereo=%s:out_stereo=%s:id_fov=%s:d_fov=%.3f:yaw=%.3f:pitch=%s:roll=%.3f:w=%s*192.0:h=%.3f*108.0:h_flip=%s:interp=%s,setsar=sar=%.3f%s%s",in_flip,inputProjection,outputProjection,in_stereo,out_stereo,idfov,dfov,yaw,pitch,roll,res,res,h_flip,scaling,sarOutput,anaglyph_filter,cropClause(res*192.0, res*108.0))
 	if not filterIsOn then
-		mp.command_native_async({"no-osd", "vf", "add", string.format("@vrrev:%sv360=%s:%s:reset_rot=1:in_stereo=%s:out_stereo=%s:id_fov=%s:d_fov=%.3f:yaw=%.3f:pitch=%s:roll=%.3f:w=%s*192.0:h=%.3f*108.0:h_flip=%s:interp=%s,setsar=sar=%.3f%s",in_flip,inputProjection,outputProjection,in_stereo,out_stereo,idfov,dfov,yaw,pitch,roll,res,res,h_flip,scaling,sarOutput,anaglyph_filter)}, updateComplete)
+		mp.command_native_async({"no-osd", "vf", "add", filterString}, updateComplete)
 		filterIsOn=true
 	elseif not updateAwaiting then
 		updateAwaiting=true
-		mp.command_native_async({"no-osd", "vf", "set", string.format("@vrrev:%sv360=%s:%s:reset_rot=1:in_stereo=%s:out_stereo=%s:id_fov=%s:d_fov=%.3f:yaw=%.3f:pitch=%s:roll=%.3f:w=%s*192.0:h=%.3f*108.0:h_flip=%s:interp=%s,setsar=sar=%.3f%s",in_flip,inputProjection,outputProjection,in_stereo,out_stereo,idfov,dfov,yaw,pitch,roll,res,res,h_flip,scaling,sarOutput,anaglyph_filter)}, updateComplete)
+		mp.command_native_async({"no-osd", "vf", "set", filterString}, updateComplete)
 	end
 	writeHeadPositionChange()
 end
@@ -418,6 +465,31 @@ local switchoutputsbs = function()
 	updateFilters()
 end
 
+local toggleVerticalCrop = function()
+	if #verticalAspects == 0 then
+		mp.osd_message("Vertical crop: no valid aspects configured", 1.5)
+		return
+	end
+	-- modulo over (count+1) is intentional here: index 0 is the "off" state
+	verticalCropInd = (verticalCropInd + 1) % (#verticalAspects + 1)
+	local msg
+	if verticalCropInd == 0 then
+		msg = "Vertical crop: off"
+	elseif outputMode ~= '2d' then
+		msg = string.format("Vertical crop: %s (only applies in 2d output mode)",
+			verticalAspects[verticalCropInd].label)
+	else
+		local exportDims = cropClause(1920.0, 1080.0):gsub(',crop=', ''):gsub(':', 'x')
+		msg = string.format("Vertical crop: %s (export %s)",
+			verticalAspects[verticalCropInd].label, exportDims)
+	end
+	if file_object ~= nil then
+		msg = msg .. "\n(does not affect the recording section already in progress)"
+	end
+	mp.osd_message(msg, 1.5)
+	updateFilters()
+end
+
 local switchScaler = function()
 	if scaling == 'nearest' then
 		scaling = 'cubic'
@@ -505,6 +577,7 @@ local build_help_string = function()
 	binding_by_name("switch_eye"), 		" = switch eye side\n",
 	binding_by_name("switch_scaler"), 	" = switch scaler\n",
 	binding_by_name("switch_output_sbs"), 	" = toggle side by side output\n",
+	binding_by_name("vertical_crop"), 	" = cycle vertical crop\n",
 	binding_by_name("toggle_smooth"), 	" = toggle mouse smoothing\n",
 	binding_by_name("new_log_session"),	" = start/stop motion recording\n",
 	binding_by_name("cycle_input"), ",", binding_by_name("cycle_output"), " = cycle in and out projections\n",
@@ -547,8 +620,8 @@ local closeCurrentLog = function()
 		file_object:write('# Suggested ffmpeg conversion command:\n')
 
 		local closingCommandComment = string.format(
-			'ffmpeg -y -ss %s -i "%s" -to %s -copyts -filter_complex "%sv360=%s:%s:in_stereo=%s:out_stereo=%s:reset_rot=1:id_fov=%s:d_fov=%.3f:yaw=%.3f:pitch=%.3f:roll=%.3f:w=1920.0:h=1080.0:interp=cubic:h_flip=%s,setsar=sar=%.3f,sendcmd=filename=%s_3dViewHistory_%s.txt" -avoid_negative_ts make_zero -preset slower -crf 17 "%s_2d_%03d.mp4"',
-			startTime, filename, finalTimeStamp, in_flip, inputProjection, outputProjection, in_stereo, out_stereo, idfov, init_dfov, init_yaw, init_pitch, init_roll, h_flip, sarOutput, videofilename, fileobjectNumber, videofilename, fileobjectNumber
+			'ffmpeg -y -ss %s -i "%s" -to %s -copyts -filter_complex "%sv360=%s:%s:in_stereo=%s:out_stereo=%s:reset_rot=1:id_fov=%s:d_fov=%.3f:yaw=%.3f:pitch=%.3f:roll=%.3f:w=1920.0:h=1080.0:interp=cubic:h_flip=%s,setsar=sar=%.3f%s,sendcmd=filename=%s_3dViewHistory_%s.txt" -avoid_negative_ts make_zero -preset slower -crf 17 "%s_2d_%03d.mp4"',
+			startTime, filename, finalTimeStamp, in_flip, inputProjection, outputProjection, in_stereo, out_stereo, idfov, init_dfov, init_yaw, init_pitch, init_roll, h_flip, sarOutput, init_cropFilter, videofilename, fileobjectNumber, videofilename, fileobjectNumber
 		)
 
 				
@@ -746,7 +819,8 @@ bindings = {
 	[opts.switch_stereo]	=	{name="switch_stereo",		fn=switchStereoMode		},
 	[opts.switch_eye]		=	{name="switch_eye",			fn=switchEye			},
 	[opts.switch_scaler]	=	{name="switch_scaler",		fn=switchScaler			},
-	[opts.switch_output_sbs]=	{name="switch_output_sbs",	fn=switchoutputsbs		},	
+	[opts.switch_output_sbs]=	{name="switch_output_sbs",	fn=switchoutputsbs		},
+	[opts.vertical_crop]	=	{name="vertical_crop",		fn=toggleVerticalCrop	},
 	[opts.toggle_smooth]	=	{name="toggle_smooth",		fn=toggleSmoothMouse	},
 	[opts.switch_bounds]	=	{name="switch_bounds",		fn=switchInputFovBounds	},
 	[opts.new_log_session]	=	{name="new_log_session",	fn=startNewLogSession	},

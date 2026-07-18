@@ -37,6 +37,11 @@ Fork of dfaker/VR-reversal (upstream issues/PRs live there).
   `package.config`).
 - `onExit` is registered for both `end-file` and `shutdown` and may run
   twice; `closeCurrentLog` is idempotent, keep it that way.
+- Vertical crop (key `x`, opts `vertical_crop`/`vertical_aspects`): appends
+  a centered `crop` clause to the chain, 2d output mode only. The export
+  crop (`init_cropFilter`) is captured when a recording section starts,
+  because the encoded frame size cannot change mid-stream - mid-section
+  crop changes intentionally do not affect that section's export.
 - Key bindings are forced (`add_forced_key_binding`) from the `bindings`
   table when the plugin is toggled on and removed on toggle off, except the
   `toggle_vr360` key which is always bound.

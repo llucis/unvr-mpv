@@ -4,6 +4,40 @@ Engineering journal for unvr-mpv. Newest entries first. Terse, user-facing
 release notes belong in a CHANGELOG, not here; this records what was done,
 why, and how it was verified.
 
+## 2026-07-17 - Vertical (portrait) crop mode
+
+Cropping to a portrait view of the projected 2D image, with matching
+vertical-video export.
+
+Design decisions:
+
+- Crop, not re-project: the request was a portrait cut of the usual
+  projection, so a centered `crop` filter is appended after the existing
+  chain rather than changing the v360 output geometry. What you see is
+  exactly what exports.
+- Hotkey (`x`, opt `vertical_crop`) cycles off -> each aspect in the
+  `vertical_aspects` opt (default `9:16,2:3,3:4,1:1`) -> off. Invalid
+  aspect tokens are skipped with a console warning.
+- 2d output mode only: cropping a side-by-side or anaglyph frame is
+  ill-defined (and 1:1 would exceed the halved anaglyph frame width), so
+  `cropClause()` returns nothing unless `outputMode == '2d'`; the OSD says
+  so when toggling in other modes.
+- Export crop is captured at recording-section start (`init_cropFilter`,
+  alongside the existing `init_*` values) because an encoder cannot change
+  frame size mid-stream. Toggling crop during a section shows an OSD note
+  and applies from the next section on. Export sizes at 1080p height:
+  9:16 -> 608x1080, 2:3 -> 720x1080, 3:4 -> 810x1080, 1:1 -> 1080x1080
+  (widths rounded to even for yuv420).
+- Refactored `updateFilters` to build the filter string once instead of
+  duplicating it in the vf add / vf set branches.
+
+Verified headlessly over IPC: crop cycles at res=3 gave 182/216/244/324
+widths on the 576x324 preview and cleanly removed when off; recorded two
+sections (one started under 9:16, one under 2:3) with a mid-section aspect
+change in the first; the generated commands contained crop=608:1080 and
+crop=720:1080 respectively, and running convert_3dViewHistory.sh produced
+valid 608x1080 and 720x1080 mp4s.
+
 ## 2026-07-17 - Code review, GPU decode support, Linux launcher, docs
 
 Commits: 41be8fe (plugin fixes + hwdec), 41525cb (launchers), 4e988d4 (docs).
