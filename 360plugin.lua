@@ -6,6 +6,12 @@
 -- (including via CLI) without editing this script at all.
 local opts = {
 	["enabled"]=false,
+	-- GPU decode acceleration. "no" (default) disables hardware decoding while
+	-- the plugin is active. Any other value is passed to mpv's hwdec property;
+	-- only copy-back modes work (auto-copy, nvdec-copy, vaapi-copy, ...)
+	-- because the v360 projection is a CPU (libavfilter) filter.
+	-- "yes"/"auto" are normalized to "auto-copy", "auto-safe" to "auto-copy-safe".
+	["hwdec"]="no",
 	["toggle_vr360"]="v",
 	["cycle_input"]="1",
 	["cycle_output"]="2",
@@ -68,7 +74,7 @@ local inputProjections = {
 	"cylindrical",
 	"sg"
 }
-local inputProjectionInd = 0
+local inputProjectionInd = 1
 local inputProjection    = "hequirect"
 
 local outputProjections = {
@@ -76,7 +82,7 @@ local outputProjections = {
 	"sg"
 }
 
-local outputProjectionInd = 0
+local outputProjectionInd = 1
 local outputProjection    = "flat"
 
 
@@ -171,6 +177,10 @@ local writeHeadPositionChange = function()
 		local outputTs = string.format("%.3f-%.3f ",lasttimePos,newTimePos)
 		local changedValues = {}
 		local movementDuration = (newTimePos-lasttimePos)
+		-- lerp() divides by the duration; avoid emitting a division by zero
+		if movementDuration <= 0 then
+			movementDuration = 0.001
+		end
 		local maximumTimeoutReached = movementDuration > 5.0
 
 		if initPass or pitch ~= last_pitch or maximumTimeoutReached then
@@ -306,7 +316,7 @@ end
 local increment_res = function(inc)
 	res = res+inc
 	res = math.max(math.min(res, 20), 1)
-	mp.osd_message(string.format("Out-Width: %spx", res*108.0), 0.5)
+	mp.osd_message(string.format("Out res: %dx%d", res*192.0, res*108.0), 0.5)
 	updateFilters()
 end
 
@@ -440,14 +450,14 @@ end
 
 
 local cycleInputProjection = function()
-	inputProjectionInd = ((inputProjectionInd+1) % (#inputProjections +1))
+	inputProjectionInd = inputProjectionInd % #inputProjections + 1
 	inputProjection    = inputProjections[inputProjectionInd]
 	mp.osd_message(string.format("Input projection: %s ",inputProjection),0.5)
 	updateFilters()
 end
 
 local cycleOutputProjection = function()
-	outputProjectionInd = ((outputProjectionInd+1) % (#outputProjections + 1))
+	outputProjectionInd = outputProjectionInd % #outputProjections + 1
 	outputProjection    = outputProjections[outputProjectionInd]
 	mp.osd_message(string.format("Output projection: %s",outputProjection),0.5)
 	updateFilters()
@@ -574,22 +584,45 @@ local startNewLogSession = function()
 	end
 end
 
+local isWindows = package.config:sub(1,1) == '\\'
+
 local onExit = function()
 	closeCurrentLog()
-	mergedCommand = ''
+	local commands = {}
 	for _, v in pairs(ffmpegCommandList) do
 		if v ~= '' then
-			mergedCommand = mergedCommand .. ' & ' .. v
+			commands[#commands+1] = v
 		end
 	end
-	if mergedCommand ~= '' then
-		mergedCommand = mergedCommand:sub(3)
-		print(mergedCommand)
-		batchfile = io.open('convert_3dViewHistory.bat', 'w')
-		batchfile:write(mergedCommand)
+	if #commands > 0 then
+		local batchname
+		local content
+		if isWindows then
+			batchname = 'convert_3dViewHistory.bat'
+			content = table.concat(commands, ' & ')
+		else
+			batchname = 'convert_3dViewHistory.sh'
+			content = '#!/bin/sh\n' .. table.concat(commands, '\n') .. '\n'
+		end
+		print(content)
+		local batchfile = io.open(batchname, 'w')
+		batchfile:write(content)
 		batchfile:close()
-		print('Batch processing file created convert_3dViewHistory.bat')
+		if not isWindows then
+			os.execute(string.format("chmod +x '%s'", batchname))
+		end
+		print('Batch processing file created ' .. batchname)
 	end
+end
+
+local requestedHwdec = function()
+	local hw = tostring(opts.hwdec)
+	if hw == "yes" or hw == "auto" then
+		return "auto-copy"
+	elseif hw == "auto-safe" then
+		return "auto-copy-safe"
+	end
+	return hw
 end
 
 local save_props = function()
@@ -597,12 +630,21 @@ local save_props = function()
 		local propv = (mp.get_property(k) or "NIL")
 		saved_props[k] = propv
 
-		if k == "hwdec" and propv ~= "no" then
-			-- Workaround: hardware acceleration rarely works well, so we have to disable it.
-			-- Error: [ffmpeg] Impossible to convert between the formats supported by 
-			-- the filter 'mpv_src_default_in' and the filter 'auto_scaler_0'
-			mp.osd_message("Temporarily turning off hardware decoding.", 1.5)
-			mp.set_property("hwdec", "no")
+		if k == "hwdec" then
+			local hw = requestedHwdec()
+			if hw == "no" then
+				if propv ~= "no" then
+					-- Non-copy hardware decoding keeps frames in GPU memory where the
+					-- CPU v360 filter cannot reach them:
+					-- Error: [ffmpeg] Impossible to convert between the formats supported by
+					-- the filter 'mpv_src_default_in' and the filter 'auto_scaler_0'
+					mp.osd_message("Temporarily turning off hardware decoding.", 1.5)
+					mp.set_property("hwdec", "no")
+				end
+			elseif propv ~= hw then
+				mp.osd_message(string.format("Using hardware decoding: %s", hw), 1.5)
+				mp.set_property("hwdec", hw)
+			end
 		end
 	end
 end
