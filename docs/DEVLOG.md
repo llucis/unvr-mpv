@@ -4,6 +4,34 @@ Engineering journal for unvr-mpv. Newest entries first. Terse, user-facing
 release notes belong in a CHANGELOG, not here; this records what was done,
 why, and how it was verified.
 
+## 2026-07-18 - Pannini/cylindrical output projections, distortion docs
+
+Question that prompted this: is FOV change distinct from zoom, and can the
+distortion on close subjects be compensated? Answer captured in the new
+README section "Zoom, FOV and distortion": zoom IS a d_fov change (fixed
+camera position, no depth data, so no true dolly); distortion splits into
+projection stretch (tweakable: grows steeply with d_fov in the default
+rectilinear output, so zooming in reduces it) and capture-baked close-range
+fisheye perspective (not correctable without depth).
+
+Changes:
+
+- Added `pannini` and `cylindrical` to the output projection cycle (`2`
+  key): flat -> sg -> pannini -> cylindrical. Both verified supported as
+  v360 outputs in ffmpeg 6.1 before wiring in. Trade-offs documented in
+  the README and as a comment above `outputProjections` in the Lua.
+- Documented that the active output projection is recorded into the export
+  command, so recordings keep the same look.
+
+Verified over IPC: cycling `2` walks all four projections and wraps
+cleanly; a section recorded in pannini mode exported with
+`v360=hequirect:pannini:...` and rendered 1920x1080.
+
+Note (test-harness artifact worth remembering): with `--loop=inf`, a
+recording section spanning the loop wrap gets startTime > endTime and
+ffmpeg encodes nothing. Pre-existing behavior, only relevant to looped
+playback; not addressed.
+
 ## 2026-07-18 - Configurable starting preview resolution (default ~480p)
 
 The preview previously started at res=1 (a 192x108 render upscaled by mpv,

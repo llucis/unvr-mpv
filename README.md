@@ -161,7 +161,8 @@ unusually formatted content:
 - `r` toggle stereo mode between top/bottom and side-by-side
 - `b` cycle input fov bounds between 180, 360 and 90
 - `1` cycle through input projections
-- `2` cycle through output projections
+- `2` cycle through output projections: flat -> sg -> pannini ->
+  cylindrical (see "Zoom, FOV and distortion" below for the trade-offs)
 - `p` cycle through 2D output modes including flat 2D, reprojected side by
   side and anaglyph modes
 
@@ -176,6 +177,51 @@ Most of the standard default mpv controls are maintained:
 
 You can configure the default keybindings in the `script-opts/360plugin.conf`
 file, or override them in your `input.conf` file as usual.
+
+# Zoom, FOV and distortion
+
+Zooming (`=`/`-` or the mouse wheel) is a field-of-view change: it adjusts
+the output `d_fov` (30-150 degrees), exactly like changing lens focal
+length on a camera that never moves. There is no separate "move closer"
+operation - the source is a video from a fixed camera position with no
+depth information, so getting "closer" always means narrowing the FOV.
+
+If people look warped, the distortion has two independent sources:
+
+1. Projection distortion - tweakable. The default output projection is
+   `flat` (rectilinear): straight lines stay straight, but radial
+   stretching grows steeply with FOV, smearing objects near the frame
+   edges. At the default `d_fov=110` this is visible; at 130+ it is
+   severe; below about 70-80 it is nearly gone. Counterintuitively,
+   zooming *in* reduces distortion and zooming *out* adds it, and a
+   subject looks most natural centered, worst in a corner at wide FOV.
+2. Baked-in capture distortion - not tweakable. VR content is shot with
+   fisheye lenses at close range and mastered for headset viewing; a
+   subject very close to the camera has real close-range perspective
+   exaggeration recorded in the pixels, which no reprojection can undo.
+
+To compensate for (1):
+
+- Keep `d_fov` in the 70-100 range and keep the subject centered.
+- Cycle the output projection with `2`:
+  - `flat` (rectilinear) - straight architecture, worst for people at
+    wide FOV.
+  - `sg` (stereographic) - keeps face and body proportions natural even
+    at wide FOV; straight lines bow outward (mild barrel look). Often the
+    most "realistic" for people-centric framing.
+  - `pannini` - the classic wide-angle compromise: verticals stay
+    straight, much less edge stretching than `flat`, faces stay close to
+    natural. A good default when both people and interiors are in frame.
+  - `cylindrical` - no horizontal stretching at any FOV and verticals stay
+    straight, but horizontal lines curve away from the center line. Best
+    for very wide panoramic framing; people keep natural width but can
+    look slightly compressed vertically off-center.
+
+The active output projection is recorded into the export command, so a
+section recorded in `sg` or `pannini` mode renders with the same look.
+Note that mouse-look panning at wide FOV always shows some "swimming" at
+the frame edges regardless of projection - that is inherent to
+reprojecting a sphere onto a flat frame.
 
 # Vertical (portrait) crop
 

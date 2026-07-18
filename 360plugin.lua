@@ -86,9 +86,20 @@ local inputProjections = {
 local inputProjectionInd = 1
 local inputProjection    = "hequirect"
 
+-- Output projection trade-offs (cycled with the cycle_output key):
+--  flat    - rectilinear: straight lines stay straight, but radial stretching
+--            grows steeply with d_fov (people smear near edges at wide FOV)
+--  sg      - stereographic: keeps face/body proportions natural at wide FOV,
+--            straight lines bow outward (mild barrel look)
+--  pannini - middle ground: verticals stay straight, much less edge
+--            stretching than flat; good default for people at wide FOV
+--  cylindrical - no horizontal stretching at any FOV, verticals straight;
+--            horizontal lines curve, best for very wide panoramic views
 local outputProjections = {
 	"flat",
-	"sg"
+	"sg",
+	"pannini",
+	"cylindrical"
 }
 
 local outputProjectionInd = 1
