@@ -4,6 +4,17 @@ Engineering journal for unvr-mpv. Newest entries first. Terse, user-facing
 release notes belong in a CHANGELOG, not here; this records what was done,
 why, and how it was verified.
 
+## 2026-07-18 - Configurable starting preview resolution (default ~480p)
+
+The preview previously started at res=1 (a 192x108 render upscaled by mpv,
+hence the very soft default image). New `start_height` opt (default 480)
+sets the initial preview height in pixels, snapped to the 108px grid the
+`y`/`h` keys step through and clamped to res 1..20: 480 -> res 4 (768x432),
+540 -> res 5 (960x540). Exact 480p is not on the 192x108 grid, so 480
+snaps to 432p. Preview only - exports remain 1080p. Verified over IPC:
+default gives w=4*192, start_height=540 gives 5, 90 clamps to 1, invalid
+values fall back to the default.
+
 ## 2026-07-17 - Vertical (portrait) crop mode
 
 Cropping to a portrait view of the projected 2D image, with matching

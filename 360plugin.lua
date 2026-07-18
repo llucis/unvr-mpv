@@ -17,6 +17,10 @@ local opts = {
 	-- 2d output mode; the recorded ffmpeg export crops to match the view.
 	["vertical_crop"]="x",
 	["vertical_aspects"]="9:16,2:3,3:4,1:1",
+	-- Initial preview render height in pixels, snapped to the 108px grid the
+	-- res_up/res_down keys step through (432, 540, 648, ...; max 2160).
+	-- Preview only - recorded sections always export at 1080p height.
+	["start_height"]=480,
 	["toggle_vr360"]="v",
 	["cycle_input"]="1",
 	["cycle_output"]="2",
@@ -99,7 +103,7 @@ local init_dfov = 0.0
 
 
 local doit = 0.0
-local res  = 1.0
+local res  = math.max(1, math.min(20, math.floor((tonumber(opts.start_height) or 480) / 108 + 0.5)))
 local dragging = false
 
 local smoothMouse = true

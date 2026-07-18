@@ -122,8 +122,10 @@ looking straight forwards. If not type:
 
 - `v` to toggle the main feature on or off.
 
-The video will start at a low resolution; press `y` to increase the preview
-quality, `h` to reduce it again.
+The preview starts near 480p (768x432; configurable via the `start_height`
+option, snapped to 108px steps). Press `y` to increase the preview quality,
+`h` to reduce it again. This only affects the live preview - recorded
+sections always export at 1080p height.
 
 - `y` increase resolution
 - `h` decrease resolution
