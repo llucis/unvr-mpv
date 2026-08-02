@@ -69,8 +69,12 @@ always start active).
 
 ## Windows
 
-- Place `mpv.exe`, `vr-reversal.bat` and `360plugin.lua` in the same
-  directory (or put mpv on PATH).
+- `vr-reversal.bat` looks for mpv in this order: the `MPV_BIN` environment
+  variable (full path to `mpv.exe`), an `mpv.exe` next to the .bat, then
+  `mpv.exe` on PATH. If mpv is installed elsewhere, point `MPV_BIN` at it
+  once with e.g. `setx MPV_BIN "D:\video\mpv\mpv.exe"`.
+- If mpv cannot be found, the console window stays open with an error
+  message instead of closing silently.
 - Run `vr-reversal.bat` and drag videos onto the mpv window, or drop a video
   file directly onto the .bat.
 

@@ -18,7 +18,8 @@ Fork of dfaker/VR-reversal (upstream issues/PRs live there).
   via `--script-opts=360plugin-KEY=VALUE`.
 - `vr-reversal.sh` - Linux launcher (player override via `-p`/`MPV_BIN`,
   GPU auto-detection -> `360plugin-hwdec=auto-copy`).
-- `vr-reversal.bat` - Windows launcher (GPU opt-in via `VR_HWDEC` env var).
+- `vr-reversal.bat` - Windows launcher (mpv located via `MPV_BIN` env var,
+  then next to the .bat, then PATH; GPU opt-in via `VR_HWDEC` env var).
 - `create-windows-shortcut.ps1` - generates a Desktop .lnk to the .bat
   (shortcuts embed absolute paths, so the .lnk itself is not committed).
 

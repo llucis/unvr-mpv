@@ -50,7 +50,7 @@ local opts = {
 	["mouse_pan"]="mouse_move",
 	["show_help"]="?",
 	["osc"]="no",
-	["fullscreen"]="yes",
+	["fullscreen"]="no",
 	["osd-font-size"]=30
 }
 (require 'mp.options').read_options(opts)
@@ -774,8 +774,11 @@ local initFunction = function()
 	end
 
 	mp.set_property("osc", opts["osc"])
-	-- It seems not forcing fullscreen may cause minor issues. Use with caution.
-	mp.set_property("fullscreen", opts["fullscreen"])
+	-- fullscreen=yes forces fullscreen on activation; anything else leaves
+	-- the current window state alone (restored on toggle-off either way).
+	if opts["fullscreen"] == "yes" then
+		mp.set_property("fullscreen", "yes")
+	end
 	mp.set_property("osd-font-size", opts["osd-font-size"])
 
 	mp.register_event("end-file", onExit)

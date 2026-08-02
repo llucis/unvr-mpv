@@ -4,6 +4,35 @@ Engineering journal for unvr-mpv. Newest entries first. Terse, user-facing
 release notes belong in a CHANGELOG, not here; this records what was done,
 why, and how it was verified.
 
+## 2026-08-01 - Windows launcher mpv lookup, fullscreen no longer forced
+
+Debugging session prompted by "the Desktop shortcut does nothing":
+
+- Root cause 1: `vr-reversal.bat` called `mpv.exe` bare, and mpv was
+  neither next to the .bat nor on the Windows PATH, so cmd failed with
+  "not recognized" and the console closed before the error was readable.
+  The .bat now resolves mpv in order: `MPV_BIN` env var (full path, same
+  variable the Linux launcher honors), `mpv.exe` next to the .bat, then
+  PATH - and if none resolve, it prints instructions and pauses instead
+  of vanishing. README/CLAUDE.md document the lookup order.
+- Root cause 2 (the follow-up "why fullscreen?"): the plugin inherited
+  `fullscreen=yes` as default from upstream and force-set the property on
+  every activation. Default is now `no`, and the property is only touched
+  when the option is explicitly `yes`, so the current window state is
+  preserved otherwise.
+- Gotcha discovered along the way: stale copies of `360plugin.lua` and
+  `360plugin.conf` living in mpv's `portable_config` shadowed the repo
+  version (mpv loads scripts from its config dir first and rejects a
+  second script with the same name, so the `--script` copy lost), and
+  script-opts are only ever read from mpv's config dir, never from the
+  repo. The repo `script-opts/360plugin.conf` is therefore documentation
+  plus a template for manual installs; running via the launcher uses the
+  Lua defaults plus the .bat's `--script-opts`. Keep manual-install copies
+  out of the config dir unless the press-`v`-anywhere workflow is wanted,
+  and re-sync them after plugin changes if so.
+- Verified headlessly with `av://lavfi:testsrc2` through the .bat: mpv
+  resolves via MPV_BIN, no Lua errors, `[vf] v360 (vrrev)` chain engages.
+
 ## 2026-07-18 - Pannini/cylindrical output projections, distortion docs
 
 Question that prompted this: is FOV change distinct from zoom, and can the
