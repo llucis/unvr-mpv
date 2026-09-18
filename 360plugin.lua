@@ -177,6 +177,7 @@ local filterIsOn = false
 
 local mousePos = {}
 local lasttimePos = nil
+local recordingTimePos = nil
 local filename = nil
 
 local fileobjectNumber = 0
@@ -187,13 +188,22 @@ local file_object      = nil
 local ffmpegCommandList = {}
 
 local openNewLogFile = function()
-	if lasttimePos ~= nil then
-		fileobjectNumber = fileobjectNumber+1
-	end
+	fileobjectNumber = fileobjectNumber+1
 	videofilename = mp.get_property('filename')
+	filename = mp.get_property('path')
+	if videofilename == nil or filename == nil then
+		mp.osd_message('Cannot start motion recording: no input file is loaded', 2.5)
+		return false
+	end
 	fileobjectFilename = string.format('%s_3dViewHistory_%s.txt',videofilename,fileobjectNumber)
 	file_object = io.open(fileobjectFilename, 'w')
+	if file_object == nil then
+		mp.osd_message('Cannot create motion log ' .. fileobjectFilename, 2.5)
+		return false
+	end
 	lasttimePos = nil
+	recordingTimePos = nil
+	return true
 end
 
 local SecondsToClock = function(seconds)
@@ -209,10 +219,6 @@ local SecondsToClock = function(seconds)
 end
 
 local writeHeadPositionChange = function()
-	if filename == nil then
-		filename = mp.get_property("path")
-	end
-
 	if file_object == nil then
 		return
 	else		
@@ -220,6 +226,7 @@ local writeHeadPositionChange = function()
 		if lasttimePos == nil then
 			lasttimePos = mp.get_property("time-pos")
 			startTime   = lasttimePos
+			recordingTimePos = lasttimePos
 			initPass=true
 			if lasttimePos == nil then
 				return
@@ -240,6 +247,15 @@ local writeHeadPositionChange = function()
 			movementDuration = 0.001
 		end
 		local maximumTimeoutReached = movementDuration > 5.0
+
+		-- The ffmpeg filter starts with the view captured for this section.
+		-- Do not interpolate from the final view of an earlier recording.
+		if initPass then
+			last_pitch = pitch
+			last_yaw   = yaw
+			last_roll  = roll
+			last_dfov  = dfov
+		end
 
 		if initPass or pitch ~= last_pitch or maximumTimeoutReached then
 			changedValues[#changedValues+1]= string.format(", [expr] v360 pitch 'lerp(%.3f,%.3f,(T-%.3f)/%.3f)'",last_pitch,pitch,lasttimePos,movementDuration)
@@ -295,9 +311,12 @@ local updateComplete = function()
 end
 
 local printRecordingStatus = function()
-	lasttimePos = (mp.get_property("time-pos") or lasttimePos)
-	if file_object ~= nil and lasttimePos ~= nil and startTime ~= nil then
-		mp.osd_message(string.format("Recording:%s", SecondsToClock(lasttimePos - startTime)), 10)
+	if file_object ~= nil then
+		local currentTime = mp.get_property("time-pos")
+		if currentTime ~= nil and startTime ~= nil then
+			recordingTimePos = currentTime
+			mp.osd_message(string.format("Recording:%s", SecondsToClock(currentTime - startTime)), 10)
+		end
 	end
 end
 
@@ -616,7 +635,7 @@ local closeCurrentLog = function()
 		finalTimeStamp = mp.get_property("time-pos")
 		-- Can be nil while the player is shutting down and the file is already closed
 		if finalTimeStamp == nil then
-			finalTimeStamp = lasttimePos
+			finalTimeStamp = recordingTimePos or lasttimePos
 		end
 
 		file_object:write('#\n')
@@ -649,6 +668,7 @@ local closeCurrentLog = function()
 		commandForFinalLog = closingCommandComment
 	end
 	lasttimePos = nil
+	recordingTimePos = nil
 	startTime = nil
 	if file_object ~= nil then
 		file_object:close()
@@ -659,7 +679,9 @@ end
 
 local startNewLogSession = function()
 	if file_object == nil then
-		openNewLogFile()
+		if not openNewLogFile() then
+			return
+		end
 		writeHeadPositionChange()
 		mp.osd_message(string.format("Started Motion Record %s_3dViewHistory_%s.txt",videofilename,fileobjectNumber), 0.5)
 	else
@@ -675,7 +697,10 @@ end
 local isWindows = package.config:sub(1,1) == '\\'
 
 local onExit = function()
-	closeCurrentLog()
+	local command = closeCurrentLog()
+	if command ~= '' then
+		ffmpegCommandList[#ffmpegCommandList+1] = command
+	end
 	local commands = {}
 	for _, v in pairs(ffmpegCommandList) do
 		if v ~= '' then
