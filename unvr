@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Run the final suggested FFmpeg command from a 3dViewHistory text file."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+
+
+COMMAND_RE = re.compile(r"^\s*(?:#\s*)?(ffmpeg(?:\.exe)?\s+.+?)\s*$", re.IGNORECASE)
+SENDCMD_RE = re.compile(r"sendcmd=filename=(?:'(?:\\.|[^'])*'|[^,;\[\]]+)")
+
+
+def fail(message: str) -> "NoReturn":
+    print(f"unvr: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def read_last_command(command_file: Path) -> str:
+    try:
+        text = command_file.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as error:
+        fail(f"cannot read {command_file}: {error}")
+
+    commands = [match.group(1) for line in text.splitlines() if (match := COMMAND_RE.match(line))]
+    if not commands:
+        fail(f"no FFmpeg command found in {command_file}")
+    return commands[-1]
+
+
+def shell_path(path: str) -> str:
+    """Convert a Windows path from the saved command to FFmpeg-safe slash form."""
+    converted = path.replace("\\", "/")
+    # shlex reduces the two leading backslashes of a quoted UNC path to one.
+    if path.startswith("\\") and converted.startswith("/") and not converted.startswith("//"):
+        converted = "/" + converted
+    return converted
+
+
+def filter_escape(value: str) -> str:
+    """Escape a filename used as an unquoted FFmpeg filter option value."""
+    return re.sub(r"([\\'=:,;\[\]\s])", r"\\\1", value)
+
+
+def prepare(command: str, command_file: Path) -> list[str]:
+    try:
+        argv = shlex.split(command, posix=True)
+    except ValueError as error:
+        fail(f"cannot parse the FFmpeg command: {error}")
+
+    if not argv or Path(argv[0]).name.lower() not in {"ffmpeg", "ffmpeg.exe"}:
+        fail("the extracted command does not start with ffmpeg")
+
+    for index, argument in enumerate(argv[:-1]):
+        if argument == "-i":
+            argv[index + 1] = shell_path(argv[index + 1])
+
+    # The generated output is the final positional argument.
+    if len(argv) > 1 and not argv[-1].startswith("-"):
+        argv[-1] = shell_path(argv[-1])
+
+    try:
+        filter_index = argv.index("-filter_complex") + 1
+    except ValueError:
+        filter_index = -1
+
+    if filter_index > 0 and filter_index < len(argv):
+        command_name = filter_escape(command_file.name)
+        replacement = f"sendcmd=filename={command_name}"
+        if SENDCMD_RE.search(argv[filter_index]):
+            argv[filter_index] = SENDCMD_RE.sub(replacement, argv[filter_index])
+        else:
+            fail("the FFmpeg filter does not contain a sendcmd filename")
+
+    return argv
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Run the final suggested FFmpeg command in a 3dViewHistory text file."
+    )
+    parser.add_argument(
+        "--print",
+        action="store_true",
+        dest="print_only",
+        help="print the prepared command without running it",
+    )
+    parser.add_argument("command_file", type=Path, metavar="FILE.txt")
+    args = parser.parse_args()
+
+    command_file = args.command_file.expanduser().resolve()
+    if command_file.suffix.lower() != ".txt":
+        fail(f"expected a .txt input file: {command_file}")
+    if not command_file.is_file():
+        fail(f"file not found: {command_file}")
+
+    argv = prepare(read_last_command(command_file), command_file)
+    ffmpeg_path = shutil.which(argv[0])
+    if ffmpeg_path is None:
+        fail(f"{argv[0]} is not available on PATH")
+
+    output = sys.stdout if args.print_only else sys.stderr
+    print(f"cd {shlex.quote(command_file.parent.as_posix())}", file=output)
+    print(shlex.join(argv), file=output)
+    if args.print_only:
+        return 0
+
+    argv[0] = ffmpeg_path
+    try:
+        return subprocess.run(argv, cwd=command_file.parent, check=False).returncode
+    except OSError as error:
+        fail(f"cannot start FFmpeg: {error}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

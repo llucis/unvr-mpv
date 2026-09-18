@@ -279,6 +279,15 @@ it into a normal 2D clip:
    Each section renders (CRF 17, preset slower, 1920x1080) to
    `{videoFilename}_2d_{NNN}.mp4`.
 
+On Windows under MSYS2, use the included `unvr` wrapper to render one motion
+log. It converts Windows and UNC paths before invoking ffmpeg and requires
+Python 3:
+
+```sh
+./unvr video_3dViewHistory_1.txt
+./unvr --print video_3dViewHistory_1.txt  # inspect without running ffmpeg
+```
+
 The exact ffmpeg command for each section is also embedded as a comment at
 the end of its motion log file, so you can tweak quality settings or re-run
 sections individually.
